@@ -1,0 +1,12 @@
+$ cat MANIFEST.in 
+# MANIFEST.in
+#
+
+graft docs
+graft munin_client
+
+include requirements.txt
+include README.md
+
+global-exclude *.py[cod] __pycache__ *.so *.dylib *.sql
+
