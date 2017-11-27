@@ -4,6 +4,10 @@ import pytest
 class TestMuninClient(object):
     
     def config_test(self):
+        # Mock server
+        # Create a cli MuninClient(mock_server)
+        # cli.config("test_plugin")
+        # assert with expected result
         pass
 
     def fetch_test(self):

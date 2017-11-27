@@ -18,7 +18,8 @@ def munin_function(func):
     """
     @wraps(func)
     def deco(self, *args, **kwargs):
-        self._connect()
+        if not self._connect():
+            return "{}"
         result = func(self, *args, **kwargs)
         self._disconnect()
         return result
@@ -44,9 +45,13 @@ class MuninClient(object):
         self._cli = None
 
     def _connect(self):
-        cmd = "nc {} {}".format(self._host, self._port)
-        self._cli = pexpect.spawn(cmd)
-        self._cli.expect("# munin node at .*")
+        try:
+            cmd = "nc {} {}".format(self._host, self._port)
+            self._cli = pexpect.spawn(cmd)
+            self._cli.expect("# munin node at .*")
+            return True
+        except pexpect.ExceptionPexpect:
+            return False
 
     def _disconnect(self):
         if self._cli:
@@ -97,7 +102,7 @@ class MuninClient(object):
         self._cli.sendline(cmd)
         self._cli.expect(r"fetch {}\r\n(.*)\r\n.\r\n".format(plugin_name))
         raw_values = self._cli.match.group(1).decode("utf-8")
-        return {v.split(".")[1].replace("value ", "") for v
+        return {v.split(" ")[0].split(".")[0]: v.split(" ")[1] for v
                 in raw_values.split("\r\n")}
 
     @munin_function
