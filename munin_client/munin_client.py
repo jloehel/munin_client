@@ -2,6 +2,7 @@
 """
 
 import re
+import logging
 from functools import wraps
 import pexpect
 
@@ -43,19 +44,23 @@ class MuninClient(object):
         self._host = host
         self._port = port
         self._cli = None
+        self.logger = logging.getLogger(__name__)
 
     def _connect(self):
         try:
             cmd = "nc {} {}".format(self._host, self._port)
             self._cli = pexpect.spawn(cmd)
             self._cli.expect("# munin node at .*")
+            self.logger.debug("Connection successfully established.")
             return True
         except pexpect.ExceptionPexpect:
+            self.logger.error("Can not connect to %s.", self._host)
             return False
 
     def _disconnect(self):
         if self._cli:
             self._cli.close()
+            self.logger.debug("Connection successfully closed.")
 
     @munin_function
     def config(self, plugin_name):
@@ -74,19 +79,25 @@ class MuninClient(object):
         }
         cmd = "config {}".format(plugin_name)
         self._cli.sendline(cmd)
-        self._cli.expect(r"config {}\r\n(.*)\r\n.\r\n".format(plugin_name))
-        for line in self._cli.match.group(1).decode("utf-8").split("\r\n"):
-            if GRAPH_CONFIG_PATTERN.search(line):
-                match = GRAPH_CONFIG_PATTERN.search(line)
-                config["graph"][match.group("name")] = match.group("value")
-            if FIELD_CONFIG_PATTERN.search(line):
-                match = FIELD_CONFIG_PATTERN.search(line)
-                if match.group("field") not in config["fields"].keys():
-                    config["fields"][match.group("field")] = {}
-                config["fields"][match.group("field")][
-                    match.group("name")
-                ] = match.group("value")
-        return config
+        failure = r"config {}\r\n# Bad exit\r\n\.\r\n".format(plugin_name)
+        success = r"config {}\r\n(.*)\r\n\.\r\n".format(plugin_name)
+        response = self._cli.expect([failure, success])
+        if response == 0:
+            self.logger.error("Could not load the configuration for the plugin: %s", plugin_name)
+            return {}
+        elif response == 1:
+            for line in self._cli.match.group(1).decode("utf-8").split("\r\n"):
+                if GRAPH_CONFIG_PATTERN.search(line):
+                    match = GRAPH_CONFIG_PATTERN.search(line)
+                    config["graph"][match.group("name")] = match.group("value")
+                if FIELD_CONFIG_PATTERN.search(line):
+                    match = FIELD_CONFIG_PATTERN.search(line)
+                    if match.group("field") not in config["fields"].keys():
+                        config["fields"][match.group("field")] = {}
+                    config["fields"][match.group("field")][
+                        match.group("name")
+                    ] = match.group("value")
+            return config
 
     @munin_function
     def fetch(self, plugin_name):
@@ -100,10 +111,16 @@ class MuninClient(object):
         """
         cmd = "fetch {}".format(plugin_name)
         self._cli.sendline(cmd)
-        self._cli.expect(r"fetch {}\r\n(.*)\r\n.\r\n".format(plugin_name))
-        raw_values = self._cli.match.group(1).decode("utf-8")
-        return {v.split(" ")[0].split(".")[0]: v.split(" ")[1] for v
-                in raw_values.split("\r\n")}
+        failure = r"config {}\r\n# Bad exit\r\n\.\r\n".format(plugin_name)
+        success = r"fetch {}\r\n(.*)\r\n.\r\n".format(plugin_name)
+        response = self._cli.expect([failure, success])
+        if response == 0:
+            self.logger.error("Could not load the configuration for the plugin: %s", plugin_name)
+            return {}
+        if response == 1:
+            raw_values = self._cli.match.group(1).decode("utf-8")
+            return {v.split(" ")[0].split(".")[0]: v.split(" ")[1] for v
+                    in raw_values.split("\r\n")}
 
     @munin_function
     def list(self):
